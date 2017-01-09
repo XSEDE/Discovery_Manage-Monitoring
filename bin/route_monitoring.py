@@ -261,44 +261,47 @@ class Monitoring():
                   (type, resource, len(message_body) ) )
             return
 
-        if type in ['inca']:
-            """
-            r_idx = resource.find('.')
-            status = resource[0:r_idx]
-            resource = resource[r_idx+1:len(resource)]
-            resource_id = 'unknown'
-            name = 'unknown'
+        """
+        # Old INCA format
+        r_idx = resource.find('.')
+        status = resource[0:r_idx]
+        resource = resource[r_idx+1:len(resource)]
+        resource_id = 'unknown'
+        name = 'unknown'
 
-            for stype in Monitoring_Handled_Types:
-                if stype in resource:
-                    r_idx = resource.find(stype)
-                    name = resource[0:r_idx]
-                    resource_id = resource[r_idx+len(stype):len(resource)]
-                    self.logger.debug('status: %s, resource_id: %s, name: %s, resource: %s' % \
-                        (status, resource_id, name, resource))
+        for stype in Monitoring_Handled_Types:
+        if stype in resource:
+        r_idx = resource.find(stype)
+        name = resource[0:r_idx]
+        resource_id = resource[r_idx+len(stype):len(resource)]
+        self.logger.debug('status: %s, resource_id: %s, name: %s, resource: %s' % \
+        (status, resource_id, name, resource))
 
-            data = message_body
-            data = json.loads(data)
-            if 'rep:report' in data:
-                xsede_is = {}
-                xsede_is['ID'] = resource
-                #xsede_is['ResourceID'] = resource_id
-                xsede_is['Name'] = name
-                data['XSEDE_IS'] = xsede_is
-                message_body = json.dumps(data)
-                resource = resource_id
-            """
-            data = json.loads(message_body)
-            if not 'rep:report' in data:
-                resource = data['TestResult']['Associations']['ResourceID']
-            else:
-                self.logger.debug('exchange=%s, routing_key=%s, size=%s discarding old format' %
-                      (type, resource, len(message_body) ) )
-                return
+        data = message_body
+        data = json.loads(data)
+        if 'rep:report' in data:
+        xsede_is = {}
+        xsede_is['ID'] = resource
+        #xsede_is['ResourceID'] = resource_id
+        xsede_is['Name'] = name
+        data['XSEDE_IS'] = xsede_is
+        message_body = json.dumps(data)
+        resource = resource_id
+        """
 
-        elif type in ['nagios']:
-            data = json.loads(message_body)
+        data = json.loads(message_body)
+
+        if type in ['inca'] and 'rep:report' in data:
+            self.logger.debug('exchange=%s, routing_key=%s, size=%s discarding old INCA format' %
+                              (type, resource, len(message_body) ) )
+            return
+
+        try:
             resource = data['TestResult']['Associations']['ResourceID']
+        except:
+            self.logger.error('exchange=%s, routing_key=%s, size=%s missing Associations->ResourceID' %
+                              (type, resource, len(message_body) ) )
+            return
 
         headers = {'Content-type': 'application/json',
             'Authorization': 'Basic %s' % base64.standard_b64encode( self.config['API_USERID'] + ':' + self.config['API_PASSWORD']) }
@@ -350,50 +353,53 @@ class Monitoring():
             self.logger.error('API response not in expected format (%s)' % e)
 
     def dest_direct(self, ts, type, resource, message_body):
-        if type in ['inca']:
-            data = message_body
-            data = json.loads(data)
-            """
-            if 'rep:report' in data:
-                r_idx = resource.find('.')
-                status = resource[0:r_idx]
-                resource = resource[r_idx+1:len(resource)]
-                resource_id = 'unknown'
-                name = 'unknown'
+        """
+        # Old INCA format
+        if 'rep:report' in data:
+        r_idx = resource.find('.')
+        status = resource[0:r_idx]
+        resource = resource[r_idx+1:len(resource)]
+        resource_id = 'unknown'
+        name = 'unknown'
+        
+        for stype in Monitoring_Handled_Types:
+        if stype in resource:
+        r_idx = resource.find(stype)
+        name = resource[0:r_idx]
+        resource_id = resource[r_idx+len(stype):len(resource)]
+        print (
+        'status: %s, resource_id: %s, name: %s, resource: %s' % (status, resource_id, name, resource))
+        
+        xsede_is = {}
+        xsede_is['ID'] = resource
+        #xsede_is['ResourceID'] = resource_id
+        xsede_is['Name'] = name
+        data['XSEDE_IS'] = xsede_is
+        #message_body = json.dumps(data)
+        resource = resource_id
+        
+        doc = Glue2Process()
+        result = doc.process(type,resource,data)
+        print (StatsSummary(result))
+        """
+      
+        data = json.loads(message_body)
 
-                for stype in Monitoring_Handled_Types:
-                    if stype in resource:
-                        r_idx = resource.find(stype)
-                        name = resource[0:r_idx]
-                        resource_id = resource[r_idx+len(stype):len(resource)]
-                        print (
-                        'status: %s, resource_id: %s, name: %s, resource: %s' % (status, resource_id, name, resource))
+        if type in ['inca'] and 'rep:report' in data:
+            self.logger.debug('exchange=%s, routing_key=%s, size=%s discarding old INCA format' %
+                              (type, resource, len(message_body) ) )
+            return
 
-                xsede_is = {}
-                xsede_is['ID'] = resource
-                #xsede_is['ResourceID'] = resource_id
-                xsede_is['Name'] = name
-                data['XSEDE_IS'] = xsede_is
-                #message_body = json.dumps(data)
-                resource = resource_id
-
-                doc = Glue2Process()
-                result = doc.process(type,resource,data)
-                print (StatsSummary(result))
-            else:
-            """
-            if not 'rep:report' in data:
-                doc = Glue2Process()
-                resource = data['TestResult']['Associations']['ResourceID']
-                result = doc.process(type, resource, data)
-                print(StatsSummary(result))
-
-        elif type in ['nagios']:
-            doc = Glue2Process()
-            data = json.loads(message_body)
+        try:
             resource = data['TestResult']['Associations']['ResourceID']
-            result = doc.process(type,resource,data)
-            print (StatsSummary(result))
+        except:
+            self.logger.error('exchange=%s, routing_key=%s, size=%s missing Associations->ResourceID' %
+                              (type, resource, len(message_body) ) )
+            return
+
+        doc = Glue2Process()
+        result = doc.process(type, resource, data)
+        print(StatsSummary(result))
 
     def process_file(self, path):
         file_name = path.split('/')[-1]

@@ -14,7 +14,7 @@
 DAEMON_NAME=route_monitoring
 DAEMON_DIR=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD
 DAEMON_BIN=$DAEMON_DIR/bin/route_monitoring.py
-DAEMON_CONF=/soft/warehouse-apps-1.0/Manage-Glue2/conf/$DAEMON_NAME.conf
+DAEMON_CONF=/soft/warehouse-apps-1.0/Manage-Monitoring/conf/$DAEMON_NAME.conf
 
 # Add any command line options for your daemon here
 DAEMON_OPTS="-l info -c $DAEMON_CONF"
