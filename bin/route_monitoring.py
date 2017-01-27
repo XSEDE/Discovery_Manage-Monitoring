@@ -468,7 +468,7 @@ class Monitoring():
             # conn = self.ConnectAmqp_Anonymous()
 
             self.channel = conn.channel()
-            declare_ok = self.channel.queue_declare(queue='monitoring-router')
+	    declare_ok = self.channel.queue_declare(queue='monitoring-router', durable=True, auto_delete=False)
             queue = declare_ok.queue
             self.channel.queue_bind(queue,'inca','#')
             self.channel.queue_bind(queue,'nagios','#')
