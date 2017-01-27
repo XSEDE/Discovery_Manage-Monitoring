@@ -1,0 +1,16 @@
+{
+    "SOURCE": "amqp:info1.dyn.xsede.org:5671",
+    "DESTINATION_DIR": "direct",
+    "DESTINATION": "api:info1.dyn.xsede.org:443",
+    "DESTINATION_DEV": "api:localhost:8000",
+    "AMQP_USERID": "monitoring-router",
+    "AMQP_PASSWORD": "s4n-QE5-nYZ-Qon",
+    "API_USERID": "monitoringrouter",
+    "API_PASSWORD": "fSm-QF8-cMK-LQx",
+    "X509_CACERTS": "/path/to/pem/",
+    "X509_CERT": "/soft/warehouse-apps-1.0/conf/cert.pem",
+    "X509_KEY": "/soft/warehouse-apps-1.0/conf/key.pem",
+    "LOG_FILE": "/soft/warehouse-apps-1.0/Manage-Monitoring/var/route_monitoring.log",
+    "RUN_DIR": "/soft/warehouse-apps-1.0/Manage-Monitoring/var",
+    "PID_FILE": "/soft/warehouse-apps-1.0/Manage-Monitoring/var/route_monitoring.pid"
+}

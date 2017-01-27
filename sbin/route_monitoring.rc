@@ -13,7 +13,7 @@
 # Change these lines to suit where you install your script and what you want to call it
 DAEMON_NAME=route_monitoring
 DAEMON_DIR=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD
-DAEMON_BIN=$DAEMON_DIR/bin/route_monitoring.py
+DAEMON_BIN=$DAEMON_DIR/bin/$DAEMON_NAME.py
 DAEMON_CONF=/soft/warehouse-apps-1.0/Manage-Monitoring/conf/$DAEMON_NAME.conf
 
 # Add any command line options for your daemon here
@@ -33,26 +33,26 @@ export DJANGO_SETTINGS_MODULE=xsede_warehouse.settings
 do_start () {
     echo -n "Starting $DAEMON_NAME:"
     if [ `id -u` = 0 ] ; then
-        su software -s /bin/sh -c "$PYTHON $DAEMON_BIN start $DAEMON_OPTS"
+        su $DAEMON_USER -s /bin/sh -c "$PYTHON $DAEMON_BIN start $DAEMON_OPTS"
         RETVAL=$?
-    elif [ `id -u` = `id -u software` ] ; then
+    elif [ `id -u` = `id -u $DAEMON_USER` ] ; then
         $PYTHON $DAEMON_BIN start $DAEMON_OPTS
         RETVAL=$?
     else
-        echo "Only root or software should run $DAEMON_BIN"
+        echo "Only root or $DAEMON_USER should run $DAEMON_BIN"
         RETVAL=99
     fi
 }
 do_stop () {
     echo -n "Stopping $DAEMON_NAME:"
     if [ `id -u` = 0 ] ; then
-        su software -s /bin/sh -c "$PYTHON $DAEMON_BIN stop $DAEMON_OPTS"
+        su $DAEMON_USER -s /bin/sh -c "$PYTHON $DAEMON_BIN stop $DAEMON_OPTS"
         RETVAL=$?
-    elif [ `id -u` = `id -u software` ] ; then
+    elif [ `id -u` = `id -u $DAEMON_USER` ] ; then
         $PYTHON $DAEMON_BIN stop $DAEMON_OPTS
         RETVAL=$?
     else
-        echo "Only root or software should run $DAEMON_BIN"
+        echo "Only root or $DAEMON_USER should run $DAEMON_BIN"
         RETVAL=99
     fi
 }
