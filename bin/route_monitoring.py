@@ -29,13 +29,13 @@ sys.path.insert(0, '%s/../../django_xsede_warehouse' % curr_folder)
 
 # using components of Django "standalone"
 import django
-os.environ['DJANGO_SETTINGS_MODULE'] = 'xsede_warehouse.settings'
 django.setup()
 from monitoring_provider.process import Glue2Process,Glue2NewDocument,StatsSummary
+from processing_status.process import ProcessingActivity
 
 Monitoring_Handled_Types = ('.general.', '.gram.','.gridftp.', '.gsissh.')
 
-class Monitoring():
+class Route_Monitoring():
     def __init__(self):
         self.args = None
         self.config = {}
@@ -56,6 +56,8 @@ class Monitoring():
                             help='Logging level (default=warning)')
         parser.add_argument('-c', '--config', action='store', default='./route_monitoring.conf', \
                             help='Configuration file default=./route_monitoring.conf')
+        parser.add_argument('-q', '--queue', action='store', default='monitoring-router', \
+                            help='AMQP queue default=monitoring-router')
         parser.add_argument('--verbose', action='store_true', \
                             help='Verbose output')
         parser.add_argument('--daemon', action='store_true', \
@@ -214,22 +216,22 @@ class Monitoring():
 
     def amqp_callback(self, message):
         st = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-        type = message.delivery_info['exchange']
+        doctype = message.delivery_info['exchange']
         tag = message.delivery_tag
-        resource = message.delivery_info['routing_key']
+        resourceid = message.delivery_info['routing_key']
         if self.dest['type'] == 'print':
-            self.dest_print(st, type, resource, message.body)
+            self.dest_print(st, doctype, resourceid, message.body)
         elif self.dest['type'] == 'directory':
-            self.dest_directory(st, type, resource, message.body)
+            self.dest_directory(st, doctype, resourceid, message.body)
         elif self.dest['type'] == 'api':
-            self.dest_restapi(st, type, resource, message.body)
+            self.dest_restapi(st, doctype, resourceid, message.body)
         elif self.dest['type'] == 'direct':
-            self.dest_direct(st, type, resource, message.body)
+            self.dest_direct(st, doctype, resourceid, message.body)
         self.channel.basic_ack(delivery_tag=tag)
 
-    def dest_print(self, st, type, resource, message_body):
+    def dest_print(self, st, doctype, resourceid, message_body):
         print('%s exchange=%s, routing_key=%s, size=%s, dest=PRINT' %
-            (st, type, resource, len(message_body) ) )
+            (st, doctype, resourceid, len(message_body) ) )
         if self.dest['obj'] != 'dump':
             return
         try:
@@ -240,79 +242,53 @@ class Monitoring():
         for key in py_data:
             print('  Key=%s' % key)
 
-    def dest_directory(self, st, type, resource, message_body):
-        dir = os.path.join(self.dest['obj'], type)
+    def dest_directory(self, st, doctype, resourceid, message_body):
+        dir = os.path.join(self.dest['obj'], doctype)
         if not os.access(dir, os.W_OK):
             self.logger.critical('%s exchange=%s, routing_key=%s, size=%s Directory not writable "%s"' %
-                  (st, type, resource, len(message_body), dir ) )
+                  (st, doctype, resourceid, len(message_body), dir ) )
             return
-        file_name = resource + '.' + st
+        file_name = resourceid + '.' + st
         file = os.path.join(dir, file_name)
         self.logger.info('%s exchange=%s, routing_key=%s, size=%s dest=file:<exchange>/%s' %
-                  (st, type, resource, len(message_body), file_name ) )
+                  (st, doctype, resourceid, len(message_body), file_name ) )
         with open(file, 'w') as fd:
             fd.write(message_body)
             fd.close()
 
-    def dest_restapi(self, st, type, resource, message_body):
+    def dest_restapi(self, st, doctype, resourceid, message_body):
         global response, data
-        if type in ['glue2.computing_activity']:
+        if doctype in ['glue2.computing_activity']:
             self.logger.debug('exchange=%s, routing_key=%s, size=%s dest=DROP' %
-                  (type, resource, len(message_body) ) )
+                  (doctype, resourceid, len(message_body) ) )
             return
 
-        if type in ['inca']:
-            """
-            r_idx = resource.find('.')
-            status = resource[0:r_idx]
-            resource = resource[r_idx+1:len(resource)]
-            resource_id = 'unknown'
-            name = 'unknown'
-
-            for stype in Monitoring_Handled_Types:
-                if stype in resource:
-                    r_idx = resource.find(stype)
-                    name = resource[0:r_idx]
-                    resource_id = resource[r_idx+len(stype):len(resource)]
-                    self.logger.debug('status: %s, resource_id: %s, name: %s, resource: %s' % \
-                        (status, resource_id, name, resource))
-
-            data = message_body
-            data = json.loads(data)
-            if 'rep:report' in data:
-                xsede_is = {}
-                xsede_is['ID'] = resource
-                #xsede_is['ResourceID'] = resource_id
-                xsede_is['Name'] = name
-                data['XSEDE_IS'] = xsede_is
-                message_body = json.dumps(data)
-                resource = resource_id
-            """
+        if doctype in ['inca']:
             data = json.loads(message_body)
             if 'rep:report' in data:
                 self.logger.debug('exchange=%s, routing_key=%s, size=%s discarding old format' %
-                      (type, resource, len(message_body) ) )
+                      (doctype, resourceid, len(message_body) ) )
                 return
 
             try:
-                resource = data['TestResult']['Associations']['ResourceID']
+                resourceid = data['TestResult']['Associations']['ResourceID']
             except:
                 self.logger.error('exchange=%s, routing_key=%s, size=%s missing Associations->ResourceID' %
-                                  (type, resource, len(message_body) ) )
+                                  (doctype, resourceid, len(message_body) ) )
                 return
 
-        elif type in ['nagios']:
+        elif doctype in ['nagios']:
             data = json.loads(message_body)
             try:
-                resource = data['TestResult']['Associations']['ResourceID']
+                resourceid = data['TestResult']['Associations']['ResourceID']
             except:
                 self.logger.error('exchange=%s, routing_key=%s, size=%s missing Associations->ResourceID' %
-                                  (type, resource, len(message_body) ) )
+                                  (doctype, resourceid, len(message_body) ) )
                 return
 
         headers = {'Content-type': 'application/json',
             'Authorization': 'Basic %s' % base64.standard_b64encode( self.config['API_USERID'] + ':' + self.config['API_PASSWORD']) }
-        url = '/monitoring-provider-api/v1/process/doctype/%s/resourceid/%s/' % (type, resource)
+        url = '/monitoring-provider-api/v1/process/doctype/%s/resourceid/%s/' % (doctype, resourceid)
         if self.dest['host'] not in ['localhost', '127.0.0.1'] and self.dest['port'] != '8000':
             url = '/wh1' + url
         (host, port) = (self.dest['host'].encode('utf-8'), self.dest['port'].encode('utf-8'))
@@ -332,7 +308,7 @@ class Monitoring():
                 conn.request('POST', url, message_body, headers)
                 response = conn.getresponse()
                 self.logger.info('exchange=%s, routing_key=%s, size=%s dest=POST http_response=status(%s)/reason(%s)' %
-                    (type, resource, len(message_body), response.status, response.reason ) )
+                    (doctype, resourceid, len(message_body), response.status, response.reason ) )
                 data = response.read()
                 conn.close()
                 break
@@ -343,7 +319,7 @@ class Monitoring():
                 sleep(sleepminutes*60)
             except httplib.BadStatusLine as e:
                 self.logger.error('Exception "%s" on POST of type="%s" and resource="%s"' % \
-                                  (type(e).__name__, type, resource))
+                                  (type(e).__name__, doctype, resourceid))
                 break
 
         if response.status in [400, 403]:
@@ -359,61 +335,46 @@ class Monitoring():
         except ValueError as e:
             self.logger.error('API response not in expected format (%s)' % e)
 
-    def dest_direct(self, ts, type, resource, message_body):
-        if type in ['inca']:
+    def dest_direct(self, ts, doctype, resourceid, message_body):
+        if doctype in ['inca']:
+            pa_id = '{}:{}'.format(doctype, resourceid)
+            pa = ProcessingActivity('route_monitoring.py', 'dest_direct', pa_id, doctype, resourceid)
+
             data = message_body
             data = json.loads(data)
-            """
             if 'rep:report' in data:
-                r_idx = resource.find('.')
-                status = resource[0:r_idx]
-                resource = resource[r_idx+1:len(resource)]
-                resource_id = 'unknown'
-                name = 'unknown'
-
-                for stype in Monitoring_Handled_Types:
-                    if stype in resource:
-                        r_idx = resource.find(stype)
-                        name = resource[0:r_idx]
-                        resource_id = resource[r_idx+len(stype):len(resource)]
-                        print (
-                        'status: %s, resource_id: %s, name: %s, resource: %s' % (status, resource_id, name, resource))
-
-                xsede_is = {}
-                xsede_is['ID'] = resource
-                #xsede_is['ResourceID'] = resource_id
-                xsede_is['Name'] = name
-                data['XSEDE_IS'] = xsede_is
-                #message_body = json.dumps(data)
-                resource = resource_id
-
-                doc = Glue2Process()
-                result = doc.process(type,resource,data)
-                print (StatsSummary(result))
+                pa.FinishActivity('1', 'Ignored legacy rep:report')
             else:
-            """
-            if not 'rep:report' in data:
                 doc = Glue2Process()
                 try:
-                    resource = data['TestResult']['Associations']['ResourceID']
+                    resourceid = data['TestResult']['Associations']['ResourceID']
                 except:
                     self.logger.error('exchange=%s, routing_key=%s, size=%s missing Associations->ResourceID' %
-                                      (type, resource, len(message_body) ) )
+                                      (doctype, resourceid, len(message_body) ) )
+                    pa.FinishActivity('1', 'Missing Associations->ResourceID')
                     return
-                result = doc.process(type, resource, data)
-                print(StatsSummary(result))
+                result = doc.process(doctype, resourceid, data)
+                ss = StatsSummary(result)
+                pa.FinishActivity('0', ss)
+                print(ss)
 
-        elif type in ['nagios']:
+        elif doctype in ['nagios']:
+            pa_id = '{}:{}'.format(doctype, resourceid)
+            pa = ProcessingActivity('route_monitoring.py', 'dest_direct', pa_id, doctype, resourceid)
+
             doc = Glue2Process()
             data = json.loads(message_body)
             try:
-                resource = data['TestResult']['Associations']['ResourceID']
+                resourceid = data['TestResult']['Associations']['ResourceID']
             except:
                 self.logger.error('exchange=%s, routing_key=%s, size=%s missing Associations->ResourceID' %
-                                  (type, resource, len(message_body) ) )
+                                  (doctype, resourceid, len(message_body) ) )
+                pa.FinishActivity('1', 'Missing Associations->ResourceID')
                 return
-            result = doc.process(type,resource,data)
-            print (StatsSummary(result))
+            result = doc.process(doctype, resourceid, data)
+            ss = StatsSummary(result)
+            pa.FinishActivity('0', ss)
+            print (ss)
 
     def process_file(self, path):
         file_name = path.split('/')[-1]
@@ -421,7 +382,7 @@ class Monitoring():
             return
         
         idx = file_name.rfind('.')
-        resource = file_name[0:idx]
+        resourceid = file_name[0:idx]
         ts = file_name[idx+1:len(file_name)]
         with open(path, 'r') as file:
             data=file.read().replace('\n','')
@@ -433,26 +394,26 @@ class Monitoring():
             return
 
         if 'ApplicationEnvironment' in py_data or 'ApplicationHandle' in py_data:
-            type = 'glue2.applications'
+            doctype = 'glue2.applications'
         elif 'ComputingManager' in py_data or 'ComputingService' in py_data or \
             'ExecutionEnvironment' in py_data or 'Location' in py_data or 'ComputingShare' in py_data:
-            type = 'glue2.compute'
+            doctype = 'glue2.compute'
         elif 'ComputingActivity' in py_data:
-            type = 'glue2.computing_activities'
+            doctype = 'glue2.computing_activities'
         elif 'TestResult' in py_data:
-            type = py_data['TestResult']['Extension']['Source'].lower()
-            resource = py_data['TestResult']['Associations']['ResourceID']
+            doctype = py_data['TestResult']['Extension']['Source'].lower()
+            resourceid = py_data['TestResult']['Associations']['ResourceID']
         else:
             self.logger.error('Document type not recognized: ' + path)
             return
         self.logger.info('Processing file: ' + path)
 
         if self.dest['type'] == 'api':
-            self.dest_restapi(ts, type, resource, data)
+            self.dest_restapi(ts, doctype, resourceid, data)
         elif self.dest['type'] == 'direct':
-            self.dest_direct(ts,type,resource,data)
+            self.dest_direct(ts,doctype,resourceid,data)
         elif self.dest['type'] == 'print':
-            self.dest_print(ts, type, resource, data)
+            self.dest_print(ts, doctype, resourceid, data)
     
     # Where we process
     def run(self):
@@ -468,13 +429,13 @@ class Monitoring():
             # conn = self.ConnectAmqp_Anonymous()
 
             self.channel = conn.channel()
-	    declare_ok = self.channel.queue_declare(queue='monitoring-router', durable=True, auto_delete=False)
+            declare_ok = self.channel.queue_declare(queue=self.args.queue, durable=True, auto_delete=False)
             queue = declare_ok.queue
-            self.channel.queue_bind(queue,'inca','#')
-            self.channel.queue_bind(queue,'nagios','#')
-
-            # st = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-            # self.logger.info('Binding to queues=(%s)' % ', '.join(queues))
+            exchanges = ['inca', 'nagios']
+            for ex in exchanges:
+                self.channel.queue_bind(queue, ex, '#')
+            st = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+            self.logger.info('Binding to queues=(%s)' % ', '.join(exchanges))
             self.channel.basic_consume(queue,callback=self.amqp_callback)
             while True:
                 self.channel.wait()
@@ -502,9 +463,7 @@ class Monitoring():
                             self.process_file(fullfile2)
 
 if __name__ == '__main__':
-    #how to run
-    # python route_monitoring.py -d api:localhost:8000
-    router = Monitoring()
+    router = Route_Monitoring()
     if router.args.daemonaction is None:
         # Interactive execution
         myrouter = router.run()
