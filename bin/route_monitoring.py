@@ -15,7 +15,6 @@ import datetime
 from time import sleep
 import base64
 import amqp
-#import httplib
 import json
 import socket
 import ssl
@@ -27,9 +26,6 @@ try:
 except ImportError:
     import httplib
 
-#curr_folder = os.path.abspath(os.path.dirname(__file__))
-#sys.path.insert(0, '%s/../../django_xsede_warehouse' % curr_folder)
-
 import django
 django.setup()
 from monitoring_provider.process import Glue2Process,Glue2NewDocument,StatsSummary
@@ -37,8 +33,6 @@ from processing_status.process import ProcessingActivity
 
 from daemon import runner
 import pdb
-
-Monitoring_Handled_Types = ('.general.', '.gram.','.gridftp.', '.gsissh.')
 
 class Route_Monitoring():
     def __init__(self):
@@ -112,7 +106,6 @@ class Route_Monitoring():
                 self.args.src = self.config['SOURCE']
         if 'src' not in self.args or not self.args.src:
             self.args.src = 'amqp:info1.dyn.xsede.org:5671'
-            # self.args.src = 'amqp:info1.dyn.xsede.org:5672'
         idx = self.args.src.find(':')
         if idx > 0:
             (self.src['type'], self.src['obj']) = (self.args.src[0:idx], self.args.src[idx+1:])
@@ -203,9 +196,9 @@ class Route_Monitoring():
                     ts = datetime.strftime(datetime.now(), '%Y-%m-%d_%H:%M:%S')
                     newpath = '%s.%s' % (path, ts)
                     shutil.copy(path, newpath)
-                    print('SaveDaemonLog as %s' % newpath)
+                    print('SaveDaemonLog as ' + newpath)
         except Exception as e:
-            print('Exception in SaveDaemonLog(%s)' % path)
+            print('Exception in SaveDaemonLog({})'.format(path))
         return
 
     def exit_signal(self, signal, frame):
@@ -221,7 +214,7 @@ class Route_Monitoring():
         return amqp.Connection(host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
     #                           heartbeat=1,
-                                heartbeat=240,
+                               heartbeat=240,
                                ssl=ssl_opts)
 
     def ConnectAmqp_X509(self):
@@ -236,7 +229,7 @@ class Route_Monitoring():
         return
 
     def amqp_callback(self, message):
-        st = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        st = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
         doctype = message.delivery_info['exchange']
         tag = message.delivery_tag
         resourceid = message.delivery_info['routing_key']
@@ -244,15 +237,14 @@ class Route_Monitoring():
             self.dest_print(st, doctype, resourceid, message.body)
         elif self.dest['type'] == 'directory':
             self.dest_directory(st, doctype, resourceid, message.body)
-        elif self.dest['type'] == 'api':
-            self.dest_restapi(st, doctype, resourceid, message.body)
         elif self.dest['type'] == 'warehouse':
             self.dest_warehouse(st, doctype, resourceid, message.body)
+        elif self.dest['type'] == 'api':
+            self.dest_restapi(st, doctype, resourceid, message.body)
         self.channel.basic_ack(delivery_tag=tag)
 
     def dest_print(self, st, doctype, resourceid, message_body):
-        print('%s exchange=%s, routing_key=%s, size=%s, dest=PRINT' %
-            (st, doctype, resourceid, len(message_body) ) )
+        print('{} exchange={}, routing_key={}, size={}, dest=PRINT'.format(st, doctype, resourceid, len(message_body) ) )
         if self.dest['obj'] != 'dump':
             return
         try:
@@ -261,7 +253,7 @@ class Route_Monitoring():
             self.logger.error('Parsing Exception: %s' % (e))
             return
         for key in py_data:
-            print('  Key=%s' % key)
+            print('  Key=' + key)
 
     def dest_directory(self, st, doctype, resourceid, message_body):
         dir = os.path.join(self.dest['obj'], doctype)
@@ -279,7 +271,7 @@ class Route_Monitoring():
 
     def dest_restapi(self, st, doctype, resourceid, message_body):
         global response, data
-        if doctype in ['glue2.computing_activity']:
+        if doctype not in ['inca','nagios']:
             self.logger.debug('exchange=%s, routing_key=%s, size=%s dest=DROP' %
                   (doctype, resourceid, len(message_body) ) )
             return
@@ -328,7 +320,7 @@ class Route_Monitoring():
                 self.logger.debug('POST %s' % url)
                 conn.request('POST', url, message_body, headers)
                 response = conn.getresponse()
-                self.logger.info('exchange=%s, routing_key=%s, size=%s dest=POST http_response=status(%s)/reason(%s)' %
+                self.logger.info('RESP exchange=%s, routing_key=%s, size=%s dest=POST http_response=status(%s)/reason(%s)' %
                     (doctype, resourceid, len(message_body), response.status, response.reason ) )
                 data = response.read()
                 conn.close()
@@ -338,10 +330,12 @@ class Route_Monitoring():
                 sleepminutes = 2*retries
                 self.logger.error('Failed API POST: %s (retrying in %s/minutes)' % (e, sleepminutes))
                 sleep(sleepminutes*60)
-            except httplib.BadStatusLine as e:
-                self.logger.error('Exception "%s" on POST of type="%s" and resource="%s"' % \
-                                  (type(e).__name__, doctype, resourceid))
-                break
+            except (httplib.BadStatusLine) as e:
+                retries += 1
+                sleepminutes = 2*retries
+                self.logger.error('Exception httplib.BadStatusLine to %s:%s; sleeping %s/minutes before retrying' % \
+                                  (host, port, sleepminutes))
+                sleep(sleepminutes*60)
 
         if response.status in [400, 403]:
             self.logger.error('response=%s' % data)
@@ -394,7 +388,6 @@ class Route_Monitoring():
             result = doc.process(doctype, resourceid, data)
             ss = StatsSummary(result)
             pa.FinishActivity('0', ss)
-            print (ss)
 
     def process_file(self, path):
         file_name = path.split('/')[-1]
@@ -455,8 +448,8 @@ class Route_Monitoring():
             exchanges = ['inca', 'nagios']
             for ex in exchanges:
                 self.channel.queue_bind(queue, ex, '#')
-            st = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-            self.logger.info('Binding to queues=(%s)' % ', '.join(exchanges))
+            st = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+            self.logger.info('Binding to exchanges=(%s)' % ', '.join(exchanges))
             self.channel.basic_consume(queue,callback=self.amqp_callback)
             while True:
                 self.channel.wait()
