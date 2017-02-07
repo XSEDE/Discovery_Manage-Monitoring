@@ -1,37 +1,42 @@
 #!/usr/bin/env python
 
-# Route GLUE2 messages from a source (amqp, file, directory) to a destination (print, directory, api)
+# Route Inca/Nagios GLUE2 messages from a source (amqp, file, directory) to a destination (print, directory, warehouse, api)
 from __future__ import print_function
 from __future__ import print_function
 import os
+import pwd
+import re
 import sys
 import argparse
 import logging
+import logging.handlers
 import signal
 import datetime
 from time import sleep
 import base64
 import amqp
+#import httplib
 import json
 import socket
 import ssl
 from ssl import _create_unverified_context
-from daemon import runner
-import pdb
+import shutil
 
 try:
     import http.client as httplib
 except ImportError:
     import httplib
 
-curr_folder = os.path.abspath(os.path.dirname(__file__))
-sys.path.insert(0, '%s/../../django_xsede_warehouse' % curr_folder)
+#curr_folder = os.path.abspath(os.path.dirname(__file__))
+#sys.path.insert(0, '%s/../../django_xsede_warehouse' % curr_folder)
 
-# using components of Django "standalone"
 import django
 django.setup()
 from monitoring_provider.process import Glue2Process,Glue2NewDocument,StatsSummary
 from processing_status.process import ProcessingActivity
+
+from daemon import runner
+import pdb
 
 Monitoring_Handled_Types = ('.general.', '.gram.','.gridftp.', '.gsissh.')
 
@@ -51,7 +56,7 @@ class Route_Monitoring():
         parser.add_argument('-s', '--source', action='store', dest='src', \
                             help='Messages source {amqp, file, directory} (default=amqp)')
         parser.add_argument('-d', '--destination', action='store', dest='dest', \
-                            help='Message destination {print, directory, direct, or api} (default=print)')
+                            help='Message destination {print, directory, warehouse, or api} (default=print)')
         parser.add_argument('-l', '--log', action='store', \
                             help='Logging level (default=warning)')
         parser.add_argument('-c', '--config', action='store', default='./route_monitoring.conf', \
@@ -93,12 +98,13 @@ class Route_Monitoring():
             numeric_log = getattr(logging, 'INFO', None)
         if not isinstance(numeric_log, int):
             raise ValueError('Invalid log level: %s' % numeric_log)
-        self.logger = logging.getLogger('DaemonLog')
+#        self.logger = logging.getLogger('DaemonLog')
+        self.logger = logging.getLogger('xsede.glue2')
         self.logger.setLevel(numeric_log)
-        self.formatter = logging.Formatter(fmt='%(asctime)s %(message)s', datefmt='%Y/%m/%d %H:%M:%S')
-        self.handler = logging.FileHandler(self.config['LOG_FILE'])
-        self.handler.setFormatter(self.formatter)
-        self.logger.addHandler(self.handler)
+#       self.formatter = logging.Formatter(fmt='%(asctime)s %(message)s', datefmt='%Y/%m/%d %H:%M:%S')
+#       self.handler = logging.handlers.TimedRotatingFileHandler(self.config['LOG_FILE'], when='W6', backupCount=999, utc=True)
+#       self.handler.setFormatter(self.formatter)
+#       self.logger.addHandler(self.handler)
 
         # Verify arguments and parse compound arguments
         if 'src' not in self.args or not self.args.src: # Tests for None and empty ''
@@ -143,8 +149,8 @@ class Route_Monitoring():
             self.dest['type'] = self.args.dest
         if self.dest['type'] == 'dir':
             self.dest['type'] = 'directory'
-        elif self.dest['type'] not in ['print', 'directory', 'direct', 'api']:
-            self.logger.error('Destination not {print, directory, direct, api}')
+        elif self.dest['type'] not in ['print', 'directory', 'warehouse', 'api']:
+            self.logger.error('Destination not {print, directory, warehouse, api}')
             sys.exit(1)
         if self.dest['type'] == 'api':
             idx = self.dest['obj'].find(':')
@@ -179,6 +185,7 @@ class Route_Monitoring():
             else:
                 self.stdout_path = '/dev/tty'
                 self.stderr_path = '/dev/tty'
+            self.SaveDaemonLog(self.stdout_path)
             self.pidfile_timeout = 5
             if 'PID_FILE' in self.config:
                 self.pidfile_path =  self.config['PID_FILE']
@@ -186,13 +193,26 @@ class Route_Monitoring():
                 name = os.path.basename(__file__).replace('.py', '')
                 self.pidfile_path =  '/var/run/%s/%s.pid' % (name ,name)
 
+    def SaveDaemonLog(self, path):
+        # Save daemon log file using timestamp only if it has anything unexpected in it
+        try:
+            with open(path, 'r') as file:
+                lines=file.read()
+                file.close()
+                if not re.match("^started with pid \d+$", lines) and not re.match("^$", lines):
+                    ts = datetime.strftime(datetime.now(), '%Y-%m-%d_%H:%M:%S')
+                    newpath = '%s.%s' % (path, ts)
+                    shutil.copy(path, newpath)
+                    print('SaveDaemonLog as %s' % newpath)
+        except Exception as e:
+            print('Exception in SaveDaemonLog(%s)' % path)
+        return
 
     def exit_signal(self, signal, frame):
         self.logger.error('Caught signal, exiting...')
         sys.exit(0)
 
     def ConnectAmqp_Anonymous(self):
-        self.src['port'] = '5672'
         return amqp.Connection(host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede')
     #                           heartbeat=2)
 
@@ -201,6 +221,7 @@ class Route_Monitoring():
         return amqp.Connection(host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
     #                           heartbeat=1,
+                                heartbeat=240,
                                ssl=ssl_opts)
 
     def ConnectAmqp_X509(self):
@@ -225,8 +246,8 @@ class Route_Monitoring():
             self.dest_directory(st, doctype, resourceid, message.body)
         elif self.dest['type'] == 'api':
             self.dest_restapi(st, doctype, resourceid, message.body)
-        elif self.dest['type'] == 'direct':
-            self.dest_direct(st, doctype, resourceid, message.body)
+        elif self.dest['type'] == 'warehouse':
+            self.dest_warehouse(st, doctype, resourceid, message.body)
         self.channel.basic_ack(delivery_tag=tag)
 
     def dest_print(self, st, doctype, resourceid, message_body):
@@ -335,10 +356,10 @@ class Route_Monitoring():
         except ValueError as e:
             self.logger.error('API response not in expected format (%s)' % e)
 
-    def dest_direct(self, ts, doctype, resourceid, message_body):
+    def dest_warehouse(self, ts, doctype, resourceid, message_body):
         if doctype in ['inca']:
             pa_id = '{}:{}'.format(doctype, resourceid)
-            pa = ProcessingActivity('route_monitoring.py', 'dest_direct', pa_id, doctype, resourceid)
+            pa = ProcessingActivity('route_monitoring.py', 'dest_warehouse', pa_id, doctype, resourceid)
 
             data = message_body
             data = json.loads(data)
@@ -356,11 +377,10 @@ class Route_Monitoring():
                 result = doc.process(doctype, resourceid, data)
                 ss = StatsSummary(result)
                 pa.FinishActivity('0', ss)
-                print(ss)
 
         elif doctype in ['nagios']:
             pa_id = '{}:{}'.format(doctype, resourceid)
-            pa = ProcessingActivity('route_monitoring.py', 'dest_direct', pa_id, doctype, resourceid)
+            pa = ProcessingActivity('route_monitoring.py', 'dest_warehouse', pa_id, doctype, resourceid)
 
             doc = Glue2Process()
             data = json.loads(message_body)
@@ -410,8 +430,8 @@ class Route_Monitoring():
 
         if self.dest['type'] == 'api':
             self.dest_restapi(ts, doctype, resourceid, data)
-        elif self.dest['type'] == 'direct':
-            self.dest_direct(ts,doctype,resourceid,data)
+        elif self.dest['type'] == 'warehouse':
+            self.dest_warehouse(ts,doctype,resourceid,data)
         elif self.dest['type'] == 'print':
             self.dest_print(ts, doctype, resourceid, data)
     
@@ -420,7 +440,7 @@ class Route_Monitoring():
         signal.signal(signal.SIGINT, self.exit_signal)
 
         self.logger.info('Starting program=%s pid=%s, uid=%s(%s)' % \
-                     (os.path.basename(__file__), os.getpid(), os.geteuid(), os.getlogin()))
+                     (os.path.basename(__file__), os.getpid(), os.geteuid(), pwd.getpwuid(os.geteuid()).pw_name))
         self.logger.info('Source: ' + self.src['display'])
         self.logger.info('Destination: ' + self.dest['display'])
 
@@ -429,6 +449,7 @@ class Route_Monitoring():
             # conn = self.ConnectAmqp_Anonymous()
 
             self.channel = conn.channel()
+            self.channel.basic_qos(prefetch_size=0, prefetch_count=16, a_global=True)
             declare_ok = self.channel.queue_declare(queue=self.args.queue, durable=True, auto_delete=False)
             queue = declare_ok.queue
             exchanges = ['inca', 'nagios']
@@ -471,6 +492,6 @@ if __name__ == '__main__':
 
 # Daemon execution
     daemon_runner = runner.DaemonRunner(router)
-    daemon_runner.daemon_context.files_preserve=[router.handler.stream]
+    daemon_runner.daemon_context.files_preserve=[router.logger.handlers[0].stream]
     daemon_runner.daemon_context.working_directory=router.config['RUN_DIR']
     daemon_runner.do_action()
