@@ -1,26 +1,28 @@
 #!/usr/bin/env python
 
-# Route Inca/Nagios GLUE2 messages from a source (amqp, file, directory) to a destination (print, directory, warehouse, api)
+# Route Inca/Nagios GLUE2 messages
+#   from a source (amqp, file, directory)
+#   to a destination (print, directory, warehouse, api)
 from __future__ import print_function
 from __future__ import print_function
+import amqp
+import argparse
+import base64
+import datetime
+from datetime import datetime
+import json
+import logging
+import logging.handlers
 import os
 import pwd
 import re
-import sys
-import argparse
-import logging
-import logging.handlers
+import shutil
 import signal
-import datetime
-from datetime import datetime
-from time import sleep
-import base64
-import amqp
-import json
 import socket
 import ssl
 from ssl import _create_unverified_context
-import shutil
+import sys
+from time import sleep
 
 try:
     import http.client as httplib
@@ -29,8 +31,7 @@ except ImportError:
 
 import django
 django.setup()
-from monitoring_provider.process import Glue2Process,Glue2NewDocument,StatsSummary
-from processing_status.process import ProcessingActivity
+from monitoring_provider.process import Glue2ProcessRawMonitoring, StatsSummary
 
 from daemon import runner
 import pdb
@@ -329,7 +330,8 @@ class Route_Monitoring():
             except (socket.error) as e:
                 retries += 1
                 sleepminutes = 2*retries
-                self.logger.error('Failed API POST: %s (retrying in %s/minutes)' % (e, sleepminutes))
+                self.logger.error('Exception socket.error to %s:%s; sleeping %s/minutes before retrying' % \
+                                  (host, port, sleepminutes))
                 sleep(sleepminutes*60)
             except (httplib.BadStatusLine) as e:
                 retries += 1
@@ -352,43 +354,12 @@ class Route_Monitoring():
             self.logger.error('API response not in expected format (%s)' % e)
 
     def dest_warehouse(self, ts, doctype, resourceid, message_body):
-        if doctype in ['inca']:
-            pa_id = '{}:{}'.format(doctype, resourceid)
-            pa = ProcessingActivity('route_monitoring.py', 'dest_warehouse', pa_id, doctype, resourceid)
-
-            data = message_body
-            data = json.loads(data)
-            if 'rep:report' in data:
-                pa.FinishActivity('1', 'Ignored legacy rep:report')
-            else:
-                doc = Glue2Process()
-                try:
-                    resourceid = data['TestResult']['Associations']['ResourceID']
-                except:
-                    self.logger.error('exchange=%s, routing_key=%s, size=%s missing Associations->ResourceID' %
-                                      (doctype, resourceid, len(message_body) ) )
-                    pa.FinishActivity('1', 'Missing Associations->ResourceID')
-                    return
-                result = doc.process(doctype, resourceid, data)
-                ss = StatsSummary(result)
-                pa.FinishActivity('0', ss)
-
-        elif doctype in ['nagios']:
-            pa_id = '{}:{}'.format(doctype, resourceid)
-            pa = ProcessingActivity('route_monitoring.py', 'dest_warehouse', pa_id, doctype, resourceid)
-
-            doc = Glue2Process()
-            data = json.loads(message_body)
-            try:
-                resourceid = data['TestResult']['Associations']['ResourceID']
-            except:
-                self.logger.error('exchange=%s, routing_key=%s, size=%s missing Associations->ResourceID' %
-                                  (doctype, resourceid, len(message_body) ) )
-                pa.FinishActivity('1', 'Missing Associations->ResourceID')
-                return
-            result = doc.process(doctype, resourceid, data)
-            ss = StatsSummary(result)
-            pa.FinishActivity('0', ss)
+        proc = Glue2ProcessRawMonitoring(application=os.path.basename(__file__), function='dest_warehouse')
+        (code, message) = proc.process(ts, doctype, resourceid, message_body)
+#        if code is False:
+#            self.logger.error(message)
+#        else:
+#            self.logger.info(message)
 
     def process_file(self, path):
         file_name = path.split('/')[-1]
@@ -425,7 +396,7 @@ class Route_Monitoring():
         if self.dest['type'] == 'api':
             self.dest_restapi(ts, doctype, resourceid, data)
         elif self.dest['type'] == 'warehouse':
-            self.dest_warehouse(ts,doctype,resourceid,data)
+            self.dest_warehouse(ts, doctype, resourceid, data)
         elif self.dest['type'] == 'print':
             self.dest_print(ts, doctype, resourceid, data)
     
@@ -440,8 +411,6 @@ class Route_Monitoring():
 
         if self.src['type'] == 'amqp':
             conn = self.ConnectAmqp_UserPass()
-            # conn = self.ConnectAmqp_Anonymous()
-
             self.channel = conn.channel()
             self.channel.basic_qos(prefetch_size=0, prefetch_count=16, a_global=True)
             declare_ok = self.channel.queue_declare(queue=self.args.queue, durable=True, auto_delete=False)
@@ -449,8 +418,8 @@ class Route_Monitoring():
             exchanges = ['inca', 'nagios']
             for ex in exchanges:
                 self.channel.queue_bind(queue, ex, '#')
+            self.logger.info('AMQP Queue={}, Exchanges=({})'.format(self.args.queue, ', '.join(exchanges)))
             st = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-            self.logger.info('Binding to exchanges=(%s)' % ', '.join(exchanges))
             self.channel.basic_consume(queue,callback=self.amqp_callback)
             while True:
                 self.channel.wait()
