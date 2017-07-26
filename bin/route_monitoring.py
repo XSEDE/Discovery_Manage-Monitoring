@@ -31,7 +31,7 @@ except ImportError:
 
 import django
 django.setup()
-from monitoring_provider.process import Glue2ProcessRawMonitoring, StatsSummary
+from monitoring_provider.process import Glue2ProcessRawMonitoring, StatsSummary, Glue2DeleteExpiredMonitoring
 
 from daemon import runner
 import pdb
@@ -59,6 +59,8 @@ class Route_Monitoring():
                             help='Configuration file default=./route_monitoring.conf')
         parser.add_argument('-q', '--queue', action='store', default='monitoring-router', \
                             help='AMQP queue default=monitoring-router')
+        parser.add_argument('--expire', action='store_true', \
+                            help='Delete expired monitoring records')
         parser.add_argument('--verbose', action='store_true', \
                             help='Verbose output')
         parser.add_argument('--daemon', action='store_true', \
@@ -245,6 +247,8 @@ class Route_Monitoring():
             self.dest_restapi(st, doctype, resourceid, message.body)
         self.channel.basic_ack(delivery_tag=tag)
 
+        self.warehouse_expire()
+
     def dest_print(self, st, doctype, resourceid, message_body):
         print('{} exchange={}, routing_key={}, size={}, dest=PRINT'.format(st, doctype, resourceid, len(message_body) ) )
         if self.dest['obj'] != 'dump':
@@ -409,6 +413,9 @@ class Route_Monitoring():
         self.logger.info('Source: ' + self.src['display'])
         self.logger.info('Destination: ' + self.dest['display'])
 
+        if self.args.expire:
+            self.expirer = Glue2DeleteExpiredMonitoring(interval = 3600)
+        
         if self.src['type'] == 'amqp':
             conn = self.ConnectAmqp_UserPass()
             self.channel = conn.channel()
@@ -445,6 +452,14 @@ class Route_Monitoring():
                         fullfile2 = os.path.join(fullfile1, file2)
                         if os.path.isfile(fullfile2):
                             self.process_file(fullfile2)
+
+    def warehouse_expire(self):
+        if self.args.expire:
+            (code, message) = self.expirer.delete()
+            if not code:
+                self.logger.error('Expirer reported: {}'.format(message))
+            elif self.args.verbose and message:
+                self.logger.info('Expirer reported: {}'.format(message))
 
 if __name__ == '__main__':
     router = Route_Monitoring()
