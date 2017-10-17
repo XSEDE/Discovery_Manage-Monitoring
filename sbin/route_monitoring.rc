@@ -17,7 +17,7 @@ DAEMON_BIN=$DAEMON_DIR/bin/$DAEMON_NAME.py
 DAEMON_CONF=/soft/warehouse-apps-1.0/Manage-Monitoring/conf/$DAEMON_NAME.conf
 
 # Add any command line options for your daemon here
-DAEMON_OPTS="-l info -c $DAEMON_CONF"
+DAEMON_OPTS="-l info --expire -c $DAEMON_CONF"
 
 # This next line determines what user the script runs as
 DAEMON_USER=software

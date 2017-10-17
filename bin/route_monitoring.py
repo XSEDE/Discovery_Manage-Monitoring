@@ -217,17 +217,14 @@ class Route_Monitoring():
         ssl_opts = {'ca_certs': os.environ.get('X509_USER_CERT')}
         return amqp.Connection(host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
-    #                           heartbeat=1,
-                               heartbeat=240,
-                               ssl=ssl_opts)
+                               heartbeat=30, ssl=ssl_opts)
 
     def ConnectAmqp_X509(self):
         ssl_opts = {'ca_certs': self.config['X509_CACERTS'],
                    'keyfile': '/path/to/key.pem',
                    'certfile': '/path/to/cert.pem'}
         return amqp.Connection(host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede',
-    #                           heartbeat=2,
-                               ssl=ssl_opts)
+                               heartbeat=30, ssl=ssl_opts)
 
     def src_amqp(self):
         return
@@ -403,7 +400,20 @@ class Route_Monitoring():
             self.dest_warehouse(ts, doctype, resourceid, data)
         elif self.dest['type'] == 'print':
             self.dest_print(ts, doctype, resourceid, data)
-    
+
+    def connect_amqp(self, mode):
+        conn = self.ConnectAmqp_UserPass()
+        self.channel = conn.channel()
+        self.channel.basic_qos(prefetch_size=0, prefetch_count=16, a_global=True)
+        declare_ok = self.channel.queue_declare(queue=self.args.queue, durable=True, auto_delete=False)
+        queue = declare_ok.queue
+        exchanges = ['inca', 'nagios']
+        for ex in exchanges:
+            self.channel.queue_bind(queue, ex, '#')
+        self.logger.info('AMQP Queue={}, Exchanges=({}), {}'.format(self.args.queue, ', '.join(exchanges), mode))
+        st = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        self.channel.basic_consume(queue, callback=self.amqp_callback)
+
     # Where we process
     def run(self):
         signal.signal(signal.SIGINT, self.exit_signal)
@@ -417,19 +427,13 @@ class Route_Monitoring():
             self.expirer = Glue2DeleteExpiredMonitoring(interval = 3600)
         
         if self.src['type'] == 'amqp':
-            conn = self.ConnectAmqp_UserPass()
-            self.channel = conn.channel()
-            self.channel.basic_qos(prefetch_size=0, prefetch_count=16, a_global=True)
-            declare_ok = self.channel.queue_declare(queue=self.args.queue, durable=True, auto_delete=False)
-            queue = declare_ok.queue
-            exchanges = ['inca', 'nagios']
-            for ex in exchanges:
-                self.channel.queue_bind(queue, ex, '#')
-            self.logger.info('AMQP Queue={}, Exchanges=({})'.format(self.args.queue, ', '.join(exchanges)))
-            st = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-            self.channel.basic_consume(queue,callback=self.amqp_callback)
+            self.connect_amqp('startup')
             while True:
-                self.channel.wait()
+                try:
+                    self.channel.wait()
+                except IOError:
+                    sleep(60)   # Sleep a minute and then try to reconnect
+                    self.connect_amqp('reconnect')
 
         elif self.src['type'] == 'file':
             self.src['obj'] = os.path.abspath(self.src['obj'])
