@@ -1,5 +1,6 @@
 {
-    "SOURCE": "amqp:info1.dyn.xsede.org:5671",
+    "SOURCE": "amqp:infopub.xsede.org:5671",
+    "AMQP_FALLBACK": "amqp:infopub-alt.xsede.org:5671",
     "DESTINATION_DIR": "direct",
     "DESTINATION": "api:info1.dyn.xsede.org:443",
     "DESTINATION_DEV": "api:localhost:8000",

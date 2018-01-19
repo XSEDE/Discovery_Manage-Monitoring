@@ -41,9 +41,11 @@ class Route_Monitoring():
         self.args = None
         self.config = {}
         self.src = {}
+        self.altsrc = {}
         self.dest = {}
         for var in ['type', 'obj', 'host', 'port', 'display']:
             self.src[var] = None
+            self.altsrc[var] = None
             self.dest[var] = None
 
         parser = argparse.ArgumentParser(epilog='File|Directory SRC|DEST syntax: {file|directory}:<file|directory path and name')
@@ -215,9 +217,53 @@ class Route_Monitoring():
 
     def ConnectAmqp_UserPass(self):
         ssl_opts = {'ca_certs': os.environ.get('X509_USER_CERT')}
-        return amqp.Connection(host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede',
+        try:
+            host = '%s:%s' % (self.src['host'], self.src['port'])
+            self.logger.info('AMQP connecting to host={} as userid={}'.format(host, self.config['AMQP_USERID']))
+            conn = amqp.Connection(host=host, virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
-                               heartbeat=30, ssl=ssl_opts)
+                               heartbeat=120,
+                               ssl=ssl_opts)
+            return conn
+        except Exception as err:
+            self.logger.error('AMQP connect to primary error: ' + format(err))
+
+        alternate = self.config.get('AMQP_FALLBACK', None)
+        if not alternate:
+            self.logger.error('No AMQP_FALLBACK, quitting...')
+            sys.exit(1)
+
+        idx = alternate.find(':')
+        if idx > 0:
+            (self.altsrc['type'], self.altsrc['obj']) = (alternate[0:idx], alternate[idx+1:])
+        else:
+            self.altsrc['type'] = alternate
+        if self.altsrc['type'] == 'dir':
+            self.altsrc['type'] = 'directory'
+        elif self.altsrc['type'] not in ['amqp']:
+            self.logger.error('Alternate source not {amqp}')
+            sys.exit(1)
+        idx = self.altsrc['obj'].find(':')
+        if idx > 0:
+            (self.altsrc['host'], self.altsrc['port']) = (self.altsrc['obj'][0:idx], self.altsrc['obj'][idx+1:])
+        else:
+            self.altsrc['host'] = self.altsrc['obj']
+        if not self.altsrc['port']:
+            self.altsrc['port'] = '5671'
+        self.altsrc['display'] = '%s@%s:%s' % (self.altsrc['type'], self.altsrc['host'], self.altsrc['port'])
+
+        try:
+            host = '%s:%s' % (self.altsrc['host'], self.altsrc['port'])
+            self.logger.info('AMQP connecting to host={} as userid={}'.format(host, self.config['AMQP_USERID']))
+            conn = amqp.Connection(host=host, virtual_host='xsede',
+                               userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
+                               heartbeat=120,
+                               ssl=ssl_opts)
+            return conn
+        except Exception as err:
+            self.logger.error('AMQP connect to alternate error: ' + format(err))
+            self.logger.error('Quitting...')
+            sys.exit(1)
 
     def ConnectAmqp_X509(self):
         ssl_opts = {'ca_certs': self.config['X509_CACERTS'],
@@ -401,20 +447,32 @@ class Route_Monitoring():
         elif self.dest['type'] == 'print':
             self.dest_print(ts, doctype, resourceid, data)
 
-    def connect_amqp(self, mode):
-        conn = self.ConnectAmqp_UserPass()
-        self.channel = conn.channel()
+    # Where we process
+    def amqp_consume_setup(self):
+        now = datetime.utcnow()
+        try:
+            if (now - self.amqp_consume_setup_last).seconds < 300:  # 5 minutes
+                self.logger.error('Too recent amqp_consume_setup, quitting...')
+                sys.exit(1)
+        except SystemExit:
+            raise
+        except:
+            pass
+        self.amqp_consume_setup_last = now
+
+        self.conn = self.ConnectAmqp_UserPass()
+        self.channel = self.conn.channel()
         self.channel.basic_qos(prefetch_size=0, prefetch_count=16, a_global=True)
-        declare_ok = self.channel.queue_declare(queue=self.args.queue, durable=True, auto_delete=False)
+        q = self.args.queue or ''
+        declare_ok = self.channel.queue_declare(queue=q, durable=True, auto_delete=False)
         queue = declare_ok.queue
-        exchanges = ['inca', 'nagios']
+        exchanges = ['inca','nagios']
         for ex in exchanges:
             self.channel.queue_bind(queue, ex, '#')
-        self.logger.info('AMQP Queue={}, Exchanges=({}), {}'.format(self.args.queue, ', '.join(exchanges), mode))
+        self.logger.info('AMQP Queue={}, Exchanges=({})'.format(self.args.queue, ', '.join(exchanges)))
         st = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-        self.channel.basic_consume(queue, callback=self.amqp_callback)
-
-    # Where we process
+        self.channel.basic_consume(queue,callback=self.amqp_callback)
+    
     def run(self):
         signal.signal(signal.SIGINT, self.exit_signal)
 
@@ -427,13 +485,19 @@ class Route_Monitoring():
             self.expirer = Glue2DeleteExpiredMonitoring(interval = 3600)
         
         if self.src['type'] == 'amqp':
-            self.connect_amqp('startup')
+            self.amqp_consume_setup()
             while True:
                 try:
                     self.channel.wait()
-                except IOError:
+                    continue # Loops back to the while
+                except Exception as err:
                     sleep(60)   # Sleep a minute and then try to reconnect
-                    self.connect_amqp('reconnect')
+                    self.logger.error('AMQP channel.wait error: ' + format(err))
+                try:
+                    self.conn.close()
+                except Exception as err:
+                    self.logger.error('AMQP connection.close error: ' + format(err))
+                self.amqp_consume_setup()
 
         elif self.src['type'] == 'file':
             self.src['obj'] = os.path.abspath(self.src['obj'])
