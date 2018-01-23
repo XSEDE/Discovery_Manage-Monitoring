@@ -1,0 +1,17 @@
+[Unit]
+Description=Information Services Monitoring Router 
+After=network.target remote-fs.target nss-lookup.target
+
+[Service]
+Type=forking
+EnvironmentFile=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.sysconfig
+ExecStart=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.daemon start
+ExecReload=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.daemon restart
+ExecStop=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.daemon stop
+PIDFile=/soft/warehouse-apps-1.0/Manage-Monitoring/var/route_monitoring.pid
+#PrivateTmp=true
+User=software
+Group=admin
+
+[Install]
+WantedBy=multi-user.target
