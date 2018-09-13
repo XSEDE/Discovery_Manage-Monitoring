@@ -212,8 +212,10 @@ class Route_Monitoring():
         sys.exit(0)
 
     def ConnectAmqp_Anonymous(self):
-        return amqp.Connection(host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede')
+        conn = amqp.Connection(host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede')
     #                           heartbeat=2)
+        conn.connect()
+        return conn
 
     def ConnectAmqp_UserPass(self):
         ssl_opts = {'ca_certs': os.environ.get('X509_USER_CERT')}
@@ -259,6 +261,7 @@ class Route_Monitoring():
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
                                heartbeat=120,
                                ssl=ssl_opts)
+            conn.connect()
             return conn
         except Exception as err:
             self.logger.error('AMQP connect to alternate error: ' + format(err))
@@ -269,8 +272,10 @@ class Route_Monitoring():
         ssl_opts = {'ca_certs': self.config['X509_CACERTS'],
                    'keyfile': '/path/to/key.pem',
                    'certfile': '/path/to/cert.pem'}
-        return amqp.Connection(host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede',
+        conn = amqp.Connection(host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede',
                                heartbeat=30, ssl=ssl_opts)
+        conn.connect()
+        return conn
 
     def src_amqp(self):
         return
@@ -488,7 +493,7 @@ class Route_Monitoring():
             self.amqp_consume_setup()
             while True:
                 try:
-                    self.channel.wait()
+                    self.channel.wait(amqp.spec.Connection.Blocked)
                     continue # Loops back to the while
                 except Exception as err:
                     sleep(60)   # Sleep a minute and then try to reconnect
