@@ -220,12 +220,13 @@ class Route_Monitoring():
     def ConnectAmqp_UserPass(self):
         ssl_opts = {'ca_certs': os.environ.get('X509_USER_CERT')}
         try:
-            host = '%s:%s' % (self.src['host'], self.src['port'])
+            host = '{}:{}'.format(self.src['host'], self.src['port'])
             self.logger.info('AMQP connecting to host={} as userid={}'.format(host, self.config['AMQP_USERID']))
             conn = amqp.Connection(host=host, virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
                                heartbeat=120,
                                ssl=ssl_opts)
+            conn.connect()
             return conn
         except Exception as err:
             self.logger.error('AMQP connect to primary error: ' + format(err))
@@ -354,11 +355,13 @@ class Route_Monitoring():
                 return
 
         headers = {'Content-type': 'application/json',
-            'Authorization': 'Basic %s' % base64.standard_b64encode( self.config['API_USERID'] + ':' + self.config['API_PASSWORD']) }
+            'Authorization': 'Basic %s' % base64.standard_b64encode( (self.config['API_USERID'] + ':' + self.config['API_PASSWORD']).encode() ).decode() }
         url = '/monitoring-provider-api/v1/process/doctype/%s/resourceid/%s/' % (doctype, resourceid)
         if self.dest['host'] not in ['localhost', '127.0.0.1'] and self.dest['port'] != '8000':
             url = '/wh1' + url
-        (host, port) = (self.dest['host'].encode('utf-8'), self.dest['port'].encode('utf-8'))
+#  Updated for Python 3.6 upgrade
+#        (host, port) = (self.dest['host'].encode('utf-8'), self.dest['port'].encode('utf-8'))
+        (host, port) = (self.dest['host'], self.dest['port'])
         retries = 0
         while retries < 100:
             try:
@@ -469,14 +472,13 @@ class Route_Monitoring():
         self.channel = self.conn.channel()
         self.channel.basic_qos(prefetch_size=0, prefetch_count=16, a_global=True)
         q = self.args.queue or ''
-        declare_ok = self.channel.queue_declare(queue=q, durable=True, auto_delete=False)
-        queue = declare_ok.queue
+        queue = self.channel.queue_declare(queue=q, durable=True, auto_delete=False).queue
         exchanges = ['inca','nagios']
         for ex in exchanges:
             self.channel.queue_bind(queue, ex, '#')
         self.logger.info('AMQP Queue={}, Exchanges=({})'.format(self.args.queue, ', '.join(exchanges)))
         st = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-        self.channel.basic_consume(queue,callback=self.amqp_callback)
+        self.channel.basic_consume(queue, callback=self.amqp_callback)
     
     def run(self):
         signal.signal(signal.SIGINT, self.exit_signal)
@@ -494,10 +496,12 @@ class Route_Monitoring():
             while True:
                 try:
                     self.channel.wait(amqp.spec.Connection.Blocked)
+                    self.logger.error('AMQP channel.wait fallthru short sleep')
+                    sleep(2)
                     continue # Loops back to the while
                 except Exception as err:
-                    sleep(60)   # Sleep a minute and then try to reconnect
                     self.logger.error('AMQP channel.wait error: ' + format(err))
+                    sleep(60)   # Sleep a minute and then try to reconnect
                 try:
                     self.conn.close()
                 except Exception as err:
