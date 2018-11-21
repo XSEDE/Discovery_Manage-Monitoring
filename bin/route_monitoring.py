@@ -59,7 +59,8 @@ class Route_Monitoring():
                             help='Logging level (default=warning)')
         parser.add_argument('-c', '--config', action='store', default='./route_monitoring.conf', \
                             help='Configuration file default=./route_monitoring.conf')
-        parser.add_argument('-q', '--queue', action='store', default='monitoring-router', \
+        # Don't set the default so that we can apply the precedence argument || config || default
+        parser.add_argument('-q', '--queue', action='store', \
                             help='AMQP queue default=monitoring-router')
         parser.add_argument('--expire', action='store_true', \
                             help='Delete expired monitoring records')
@@ -471,12 +472,12 @@ class Route_Monitoring():
         self.conn = self.ConnectAmqp_UserPass()
         self.channel = self.conn.channel()
         self.channel.basic_qos(prefetch_size=0, prefetch_count=16, a_global=True)
-        q = self.args.queue or ''
-        queue = self.channel.queue_declare(queue=q, durable=True, auto_delete=False).queue
+        which_queue = self.args.queue or self.config.get('QUEUE', 'monitoring-router')
+        queue = self.channel.queue_declare(queue=which_queue, durable=True, auto_delete=False).queue
         exchanges = ['inca','nagios']
         for ex in exchanges:
             self.channel.queue_bind(queue, ex, '#')
-        self.logger.info('AMQP Queue={}, Exchanges=({})'.format(self.args.queue, ', '.join(exchanges)))
+        self.logger.info('AMQP Queue={}, Exchanges=({})'.format(which_queue, ', '.join(exchanges)))
         st = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
         self.channel.basic_consume(queue, callback=self.amqp_callback)
     
