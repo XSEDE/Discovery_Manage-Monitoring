@@ -31,6 +31,7 @@ except ImportError:
 
 import django
 django.setup()
+from django.conf import settings
 from monitoring_provider.process import Glue2ProcessRawMonitoring, StatsSummary, Glue2DeleteExpiredMonitoring
 
 from daemon import runner
@@ -161,6 +162,8 @@ class Route_Monitoring():
             if not self.dest['port']:
                 self.dest['port'] = '443'
             self.dest['display'] = '%s@%s:%s' % (self.dest['type'], self.dest['host'], self.dest['port'])
+        elif self.dest['type'] == 'warehouse':
+            self.dest['display'] = '{}@database={}'.format(self.dest['type'], settings.DATABASES['default']['HOST'])
         elif self.dest['obj']:
             self.dest['display'] = '%s:%s' % (self.dest['type'], self.dest['obj'])
         else:
