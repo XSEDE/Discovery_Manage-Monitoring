@@ -228,7 +228,7 @@ class Route_Monitoring():
             self.logger.info('AMQP connecting to host={} as userid={}'.format(host, self.config['AMQP_USERID']))
             conn = amqp.Connection(host=host, virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
-                               heartbeat=30, heartbeat_tick=2,
+                               heartbeat=60,
                                ssl=ssl_opts)
             conn.connect()
             return conn
@@ -264,7 +264,7 @@ class Route_Monitoring():
             self.logger.info('AMQP connecting to host={} as userid={}'.format(host, self.config['AMQP_USERID']))
             conn = amqp.Connection(host=host, virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
-                               heartbeat=30,
+                               heartbeat=60,
                                ssl=ssl_opts)
             conn.connect()
             return conn
@@ -284,23 +284,6 @@ class Route_Monitoring():
 
     def src_amqp(self):
         return
-
-    def amqp_callback(self, message):
-        st = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-        doctype = message.delivery_info['exchange']
-        tag = message.delivery_tag
-        resourceid = message.delivery_info['routing_key']
-        if self.dest['type'] == 'print':
-            self.dest_print(st, doctype, resourceid, message.body)
-        elif self.dest['type'] == 'directory':
-            self.dest_directory(st, doctype, resourceid, message.body)
-        elif self.dest['type'] == 'warehouse':
-            self.dest_warehouse(st, doctype, resourceid, message.body)
-        elif self.dest['type'] == 'api':
-            self.dest_restapi(st, doctype, resourceid, message.body)
-        self.channel.basic_ack(delivery_tag=tag)
-
-        self.warehouse_expire()
 
     def dest_print(self, st, doctype, resourceid, message_body):
         print('{} exchange={}, routing_key={}, size={}, dest=PRINT'.format(st, doctype, resourceid, len(message_body) ) )
@@ -460,6 +443,23 @@ class Route_Monitoring():
             self.dest_print(ts, doctype, resourceid, data)
 
     # Where we process
+    def amqp_callback(self, message):
+        st = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        doctype = message.delivery_info['exchange']
+        tag = message.delivery_tag
+        resourceid = message.delivery_info['routing_key']
+        if self.dest['type'] == 'print':
+            self.dest_print(st, doctype, resourceid, message.body)
+        elif self.dest['type'] == 'directory':
+            self.dest_directory(st, doctype, resourceid, message.body)
+        elif self.dest['type'] == 'warehouse':
+            self.dest_warehouse(st, doctype, resourceid, message.body)
+        elif self.dest['type'] == 'api':
+            self.dest_restapi(st, doctype, resourceid, message.body)
+        self.channel.basic_ack(delivery_tag=tag)
+
+        self.warehouse_expire()
+
     def amqp_consume_setup(self):
         now = datetime.utcnow()
         try:
@@ -499,23 +499,21 @@ class Route_Monitoring():
             self.amqp_consume_setup()
             while True:
                 try:
-                    self.conn.drain_events(timeout=60)
-#                   self.logger.info('AMQP drain_events fall thru, heartbeat then loop')
-                    self.conn.send_heartbeat()
-#                   sleep(1)
+                    self.conn.drain_events()
+                    self.conn.heartbeat_tick(rate=2)
                     continue # Loops back to the while
                 except (socket.timeout):
                     self.logger.info('AMQP drain_events timeout, sending heartbeat')
-                    self.conn.send_heartbeat()
+                    self.conn.heartbeat_tick(rate=2)
                     sleep(5)
                     continue
                 except Exception as err:
-                    self.logger.error('AMQP channel.wait error: ' + format(err))
-                sleep(60)   # Sleep a minute and then try to reconnect
+                    self.logger.error('AMQP drain_events error: ' + format(err))
                 try:
                     self.conn.close()
                 except Exception as err:
                     self.logger.error('AMQP connection.close error: ' + format(err))
+                sleep(30)   # Sleep a little and then try to reconnect
                 self.amqp_consume_setup()
 
         elif self.src['type'] == 'file':
