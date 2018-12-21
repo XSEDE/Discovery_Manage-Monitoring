@@ -228,7 +228,7 @@ class Route_Monitoring():
             self.logger.info('AMQP connecting to host={} as userid={}'.format(host, self.config['AMQP_USERID']))
             conn = amqp.Connection(host=host, virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
-                               heartbeat=120,
+                               heartbeat=30, heartbeat_tick=2,
                                ssl=ssl_opts)
             conn.connect()
             return conn
@@ -264,7 +264,7 @@ class Route_Monitoring():
             self.logger.info('AMQP connecting to host={} as userid={}'.format(host, self.config['AMQP_USERID']))
             conn = amqp.Connection(host=host, virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
-                               heartbeat=120,
+                               heartbeat=30,
                                ssl=ssl_opts)
             conn.connect()
             return conn
@@ -474,7 +474,7 @@ class Route_Monitoring():
 
         self.conn = self.ConnectAmqp_UserPass()
         self.channel = self.conn.channel()
-        self.channel.basic_qos(prefetch_size=0, prefetch_count=16, a_global=True)
+        self.channel.basic_qos(prefetch_size=0, prefetch_count=4, a_global=True)
         which_queue = self.args.queue or self.config.get('QUEUE', 'monitoring-router')
         queue = self.channel.queue_declare(queue=which_queue, durable=True, auto_delete=False).queue
         exchanges = ['inca','nagios']
@@ -499,13 +499,19 @@ class Route_Monitoring():
             self.amqp_consume_setup()
             while True:
                 try:
-                    self.channel.wait(amqp.spec.Connection.Blocked)
-                    self.logger.error('AMQP channel.wait fallthru short sleep')
-                    sleep(2)
+                    self.conn.drain_events(timeout=60)
+#                   self.logger.info('AMQP drain_events fall thru, heartbeat then loop')
+                    self.conn.send_heartbeat()
+#                   sleep(1)
                     continue # Loops back to the while
+                except (socket.timeout):
+                    self.logger.info('AMQP drain_events timeout, sending heartbeat')
+                    self.conn.send_heartbeat()
+                    sleep(5)
+                    continue
                 except Exception as err:
                     self.logger.error('AMQP channel.wait error: ' + format(err))
-                    sleep(60)   # Sleep a minute and then try to reconnect
+                sleep(60)   # Sleep a minute and then try to reconnect
                 try:
                     self.conn.close()
                 except Exception as err:
