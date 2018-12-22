@@ -77,9 +77,9 @@ class Route_Monitoring():
             pdb.set_trace()
 
         # Load configuration file
-        config_file = os.path.abspath(self.args.config)
+        self.config_file = os.path.abspath(self.args.config)
         try:
-            with open(config_file, 'r') as file:
+            with open(self.config_file, 'r') as file:
                 conf=file.read()
                 file.close()
         except IOError as e:
@@ -87,7 +87,7 @@ class Route_Monitoring():
         try:
             self.config = json.loads(conf)
         except ValueError as e:
-            self.logger.error('Error "%s" parsing config=%s' % (e, config_file))
+            self.logger.error('Error "%s" parsing config=%s' % (e, self.config_file))
             sys.exit(1)
 
         # Initialize logging
@@ -491,7 +491,8 @@ class Route_Monitoring():
                      (os.path.basename(__file__), os.getpid(), os.geteuid(), pwd.getpwuid(os.geteuid()).pw_name))
         self.logger.info('Source: ' + self.src['display'])
         self.logger.info('Destination: ' + self.dest['display'])
-
+        self.logger.info('Config: ' + self.config_file)
+        
         if self.args.expire:
             self.expirer = Glue2DeleteExpiredMonitoring(interval = 3600)
         
