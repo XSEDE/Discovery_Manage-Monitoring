@@ -215,18 +215,12 @@ class Route_Monitoring():
         self.logger.error('Caught signal, exiting...')
         sys.exit(0)
 
-    def ConnectAmqp_Anonymous(self):
-        conn = amqp.Connection(host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede')
-    #                           heartbeat=2)
-        conn.connect()
-        return conn
-
     def ConnectAmqp_UserPass(self):
         ssl_opts = {'ca_certs': os.environ.get('X509_USER_CERT')}
         try:
             host = '{}:{}'.format(self.src['host'], self.src['port'])
             self.logger.info('AMQP connecting to host={} as userid={}'.format(host, self.config['AMQP_USERID']))
-            conn = amqp.Connection(host=host, virtual_host='xsede',
+            conn = amqp.Connection(login_method='AMQPLAIN', host=host, virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
                                heartbeat=60,
                                ssl=ssl_opts)
@@ -262,7 +256,7 @@ class Route_Monitoring():
         try:
             host = '%s:%s' % (self.altsrc['host'], self.altsrc['port'])
             self.logger.info('AMQP connecting to host={} as userid={}'.format(host, self.config['AMQP_USERID']))
-            conn = amqp.Connection(host=host, virtual_host='xsede',
+            conn = amqp.Connection(login_method='AMQPLAIN', host=host, virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
                                heartbeat=60,
                                ssl=ssl_opts)
@@ -277,7 +271,7 @@ class Route_Monitoring():
         ssl_opts = {'ca_certs': self.config['X509_CACERTS'],
                    'keyfile': '/path/to/key.pem',
                    'certfile': '/path/to/cert.pem'}
-        conn = amqp.Connection(host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede',
+        conn = amqp.Connection(login_method='EXTERNAL', host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede',
                                heartbeat=30, ssl=ssl_opts)
         conn.connect()
         return conn
