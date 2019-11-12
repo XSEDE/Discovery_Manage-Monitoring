@@ -5,9 +5,9 @@ After=network.target remote-fs.target nss-lookup.target
 [Service]
 Type=forking
 EnvironmentFile=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.sysconfig
-ExecStart=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.daemon start
-ExecReload=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.daemon restart
-ExecStop=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.daemon stop
+ExecStart=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.sh start
+ExecReload=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.sh restart
+ExecStop=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.sh stop
 PIDFile=/soft/warehouse-apps-1.0/Manage-Monitoring/var/route_monitoring.pid
 #PrivateTmp=true
 User=software
