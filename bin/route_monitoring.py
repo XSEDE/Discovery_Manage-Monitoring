@@ -495,14 +495,12 @@ class Route_Monitoring():
             while True:
                 try:
                     self.conn.drain_events(timeout=15)
-                    self.conn.heartbeat_tick(rate=2)
-                    self.conn.send_heartbeat()
+                    self.conn.heartbeat_tick()
                     sleep(5)
                     continue # Loops back to the while
                 except (socket.timeout):
-                    self.logger.info('AMQP drain_events timeout, sending heartbeat')
-                    self.conn.heartbeat_tick(rate=2)
-                    self.conn.send_heartbeat()
+                    self.logger.info('AMQP drain_events timeout, heartbeat_tick')
+                    self.conn.heartbeat_tick()
                     sleep(5)
                     continue
                 except Exception as err:
