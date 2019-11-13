@@ -222,7 +222,7 @@ class Route_Monitoring():
             self.logger.info('AMQP connecting to host={} as userid={}'.format(host, self.config['AMQP_USERID']))
             conn = amqp.Connection(login_method='AMQPLAIN', host=host, virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
-                               heartbeat=60,
+                               heartbeat=30,
                                ssl=ssl_opts)
             conn.connect()
             return conn
@@ -258,7 +258,7 @@ class Route_Monitoring():
             self.logger.info('AMQP connecting to host={} as userid={}'.format(host, self.config['AMQP_USERID']))
             conn = amqp.Connection(login_method='AMQPLAIN', host=host, virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
-                               heartbeat=60,
+                               heartbeat=30,
                                ssl=ssl_opts)
             conn.connect()
             return conn
@@ -494,12 +494,15 @@ class Route_Monitoring():
             self.amqp_consume_setup()
             while True:
                 try:
-                    self.conn.drain_events()
+                    self.conn.drain_events(timeout=15)
                     self.conn.heartbeat_tick(rate=2)
+                    self.conn.send_heartbeat()
+                    sleep(5)
                     continue # Loops back to the while
                 except (socket.timeout):
                     self.logger.info('AMQP drain_events timeout, sending heartbeat')
                     self.conn.heartbeat_tick(rate=2)
+                    self.conn.send_heartbeat()
                     sleep(5)
                     continue
                 except Exception as err:
