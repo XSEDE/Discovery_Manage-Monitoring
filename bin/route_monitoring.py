@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Route Inca/Nagios GLUE2 messages
 #   from a source (amqp, file, directory)
@@ -222,7 +222,7 @@ class Route_Monitoring():
             self.logger.info('AMQP connecting to host={} as userid={}'.format(host, self.config['AMQP_USERID']))
             conn = amqp.Connection(login_method='AMQPLAIN', host=host, virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
-                               heartbeat=30,
+                               heartbeat=15,
                                ssl=ssl_opts)
             conn.connect()
             return conn
@@ -258,7 +258,7 @@ class Route_Monitoring():
             self.logger.info('AMQP connecting to host={} as userid={}'.format(host, self.config['AMQP_USERID']))
             conn = amqp.Connection(login_method='AMQPLAIN', host=host, virtual_host='xsede',
                                userid=self.config['AMQP_USERID'], password=self.config['AMQP_PASSWORD'],
-                               heartbeat=30,
+                               heartbeat=15,
                                ssl=ssl_opts)
             conn.connect()
             return conn
@@ -272,7 +272,7 @@ class Route_Monitoring():
                    'keyfile': '/path/to/key.pem',
                    'certfile': '/path/to/cert.pem'}
         conn = amqp.Connection(login_method='EXTERNAL', host='%s:%s' % (self.src['host'], self.src['port']), virtual_host='xsede',
-                               heartbeat=30, ssl=ssl_opts)
+                               heartbeat=15, ssl=ssl_opts)
         conn.connect()
         return conn
 
