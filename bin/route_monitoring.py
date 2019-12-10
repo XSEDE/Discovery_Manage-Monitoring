@@ -101,7 +101,7 @@ class Route_Monitoring():
         if not isinstance(numeric_log, int):
             raise ValueError('Invalid log level: %s' % numeric_log)
 #        self.logger = logging.getLogger('DaemonLog')
-        self.logger = logging.getLogger('xsede.glue2')
+        self.logger = logging.getLogger('xsede.logger')
         self.logger.setLevel(numeric_log)
 #       self.formatter = logging.Formatter(fmt='%(asctime)s %(message)s', datefmt='%Y/%m/%d %H:%M:%S')
 #       self.handler = logging.handlers.TimedRotatingFileHandler(self.config['LOG_FILE'], when='W6', backupCount=999, utc=True)
