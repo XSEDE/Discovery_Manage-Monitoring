@@ -3,9 +3,8 @@
 # Route Inca/Nagios GLUE2 messages
 #   from a source (amqp, file, directory)
 #   to a destination (print, directory, warehouse, api)
-from __future__ import print_function
-from __future__ import print_function
 import amqp
+import copy
 import argparse
 import base64
 import datetime
