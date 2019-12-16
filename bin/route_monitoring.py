@@ -451,6 +451,7 @@ class Route_Monitoring():
         elif self.dest['type'] == 'api':
             self.dest_restapi(st, doctype, resourceid, message.body)
         self.channel.basic_ack(delivery_tag=tag)
+        self.message_count += 1
 
         self.warehouse_expire()
 
@@ -490,19 +491,23 @@ class Route_Monitoring():
         if self.args.expire:
             self.expirer = Glue2DeleteExpiredMonitoring(interval = 3600)
         
+        self.wake_processed = 0
         if self.src['type'] == 'amqp':
             self.amqp_consume_setup()
+            self.message_count = 0
             while True:
                 try:
+                    save_count = copy.copy(self.message_count)
                     self.conn.drain_events(timeout=15)
                     self.conn.heartbeat_tick()
-                    sleep(5)
+                    if save_count == self.message_count:
+                        sleep(5)
                     continue # Loops back to the while
                 except (socket.timeout):
                     self.logger.debug('AMQP drain_events timeout, heartbeat_tick')
                     self.conn.heartbeat_tick()
                     sleep(5)
-                    continue
+                    continue # Loops back to the while
                 except Exception as err:
                     self.logger.error('AMQP drain_events error: ' + format(err))
                 try:
