@@ -68,6 +68,7 @@ do_stop () {
 do_debug () {
     echo -n "Debugging: ${PYTHON_BIN} ${DAEMON_BIN} $@ ${DAEMON_OPTS}"
     ${PYTHON_BIN} ${DAEMON_BIN} $@ ${DAEMON_OPTS}
+#   stdbuf -oL -eL ${PYTHON_BIN} -m trace --trace --timing --ignore-dir=/soft/python/python-3.7.5-base/ --ignore-dir=/soft/python-pipenv/Manage-Monitoring-UXrZUgbW/ --ignore-dir=/soft/warehouse-1.0/PROD/ ${DAEMON_BIN} $@ ${DAEMON_OPTS}
     RETVAL=$?
 }
 
