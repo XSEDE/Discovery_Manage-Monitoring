@@ -3,13 +3,9 @@ Description=Information Services Monitoring Router
 After=network.target remote-fs.target nss-lookup.target
 
 [Service]
-Type=forking
+Type=simple
 EnvironmentFile=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.sysconfig
-ExecStart=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.sh start
-ExecReload=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.sh restart
-ExecStop=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.sh stop
-PIDFile=/soft/warehouse-apps-1.0/Manage-Monitoring/var/route_monitoring.pid
-#PrivateTmp=true
+ExecStart=/soft/warehouse-apps-1.0/Manage-Monitoring/PROD/sbin/route_monitoring.service.sh start
 User=software
 Group=admin
 Restart=always

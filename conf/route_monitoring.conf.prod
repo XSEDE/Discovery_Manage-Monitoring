@@ -3,7 +3,6 @@
     "AMQP_FALLBACK": "amqp:infopub-alt.xsede.org:5671",
     "DESTINATION": "warehouse",
     "DESTINATION_API": "api:info.xsede.org:443",
-    "DESTINATION_DEV": "api:localhost:8000",
     "AMQP_USERID": "monitoring-router",
     "AMQP_PASSWORD": "xxxxxxxxxxxxxxx",
     "API_USERID": "monitoringrouter",
@@ -12,6 +11,7 @@
     "X509_CERT": "/soft/warehouse-apps-1.0/conf/cert.pem",
     "X509_KEY": "/soft/warehouse-apps-1.0/conf/key.pem",
     "LOG_FILE": "/soft/warehouse-apps-1.0/Manage-Monitoring/var/route_monitoring.log",
+    "LOG_LEVEL": "info",
     "RUN_DIR": "/soft/warehouse-apps-1.0/Manage-Monitoring/var",
     "PID_FILE": "/soft/warehouse-apps-1.0/Manage-Monitoring/var/route_monitoring.pid"
 }
