@@ -1,4 +1,4 @@
-# XSEDE Information Services - Manage-Monitoring
+# Manage-Monitoring Router for XSEDE Information Services
 
 Route Monitoring messages, typically:
 * From the pub/sub service
